@@ -1,12 +1,15 @@
 import { Fragment, useState, useRef, useEffect } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
-const API_TIMEOUT_MS = 70000;
+const API_TIMEOUT_MS = 300000;
 const AI_PROGRESS_MESSAGES = [
   { delay: 5000, text: '🧠 AI is shaping the product spec...' },
   { delay: 15000, text: '💻 AI is drafting backend and frontend code...' },
   { delay: 30000, text: '🧪 AI is adding tests and CI/CD details...' },
   { delay: 50000, text: '⏳ Still waiting on the provider. Render cold starts and LLM calls can be slow.' },
+  { delay: 100000, text: '⌛ Still working. Large AI scaffolds can take a couple of minutes.' },
+  { delay: 180000, text: '🔎 The LLM may be spending extra time planning the scaffold. I will keep waiting up to 5 minutes.' },
+  { delay: 250000, text: '⏱️ Almost at the 5 minute limit. If this ends, try a shorter prompt or check Render logs.' },
 ];
 
 async function readApiResponse(response) {
@@ -39,7 +42,7 @@ async function postJson(path, payload) {
     return data;
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new Error('AI generation timed out. Try a shorter idea or check the Render logs for the provider response.');
+      throw new Error('5 minute wait limit reached. The LLM may be taking too long to plan or return the scaffold. Try a shorter idea, use a faster model, or check Render logs for the provider response.');
     }
     throw error;
   } finally {
@@ -371,7 +374,7 @@ function App() {
                       setResult(null);
                       setAgentLogs([
                         '🤖 Asking AI to generate project via LLM...',
-                        '⏳ Waiting for provider response. This can take up to 70 seconds on Render.',
+                        '⏳ Waiting for provider response. This can take up to 5 minutes on Render.',
                       ]);
                       try {
                         const data = await postJson('/generate', { idea, techStack, useAI: true, provider });
