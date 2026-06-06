@@ -45,6 +45,8 @@ GEMINI_MODEL=gemini-2.0-flash-lite
 
 This repository is configured as a single Render web service. Express serves both the API and the built React app from `dist/`.
 
+Do not deploy this as a Render Static Site by itself. A Static Site can serve the React app, but it cannot run the Express `/generate` API, and the browser will show errors like `Unexpected token 'N', "Not Found" is not valid JSON`.
+
 ### Blueprint deploy
 
 1. Push this project to GitHub.
@@ -76,6 +78,14 @@ LLM_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.0-flash-lite
 ```
+
+If you intentionally deploy the frontend and backend as two separate Render services, set this build-time environment variable on the frontend service:
+
+```env
+VITE_API_BASE_URL=https://your-backend-service.onrender.com
+```
+
+For the single Web Service setup from `render.yaml`, leave `VITE_API_BASE_URL` empty.
 
 ## Notes
 

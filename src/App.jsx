@@ -1,5 +1,32 @@
 import { useState, useRef, useEffect } from 'react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
+
+async function readApiResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return {
+    error: text || `Request failed with status ${response.status}`,
+  };
+}
+
+async function postJson(path, payload) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await readApiResponse(response);
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed with status ${response.status}`);
+  }
+  return data;
+}
+
 function App() {
   const [idea, setIdea] = useState('Build a user onboarding flow with email verification');
   const [techStack, setTechStack] = useState('react-express');
@@ -100,15 +127,7 @@ function App() {
 
       await new Promise(resolve => setTimeout(resolve, 400));
 
-      const response = await fetch('/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idea, techStack, provider }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate project');
-      }
+      const data = await postJson('/generate', { idea, techStack, provider });
       logs.push('✅ Project generated successfully!');
       setAgentLogs([...logs]);
       setResult(data);
@@ -250,13 +269,7 @@ function App() {
                       setResult(null);
                       setAgentLogs(['🤖 Asking AI to generate project via LLM...']);
                       try {
-                        const response = await fetch('/generate', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ idea, techStack, useAI: true, provider }),
-                        });
-                        const data = await response.json();
-                        if (!response.ok) throw new Error(data.error || 'AI generation failed');
+                        const data = await postJson('/generate', { idea, techStack, useAI: true, provider });
                         setAgentLogs((l) => [...l, '✅ AI returned project scaffold']);
                         setResult(data);
                         setActiveTab('Spec');
