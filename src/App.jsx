@@ -1,6 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { Fragment, useState, useRef, useEffect } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
+const API_TIMEOUT_MS = 70000;
+const AI_PROGRESS_MESSAGES = [
+  { delay: 5000, text: '🧠 AI is shaping the product spec...' },
+  { delay: 15000, text: '💻 AI is drafting backend and frontend code...' },
+  { delay: 30000, text: '🧪 AI is adding tests and CI/CD details...' },
+  { delay: 50000, text: '⏳ Still waiting on the provider. Render cold starts and LLM calls can be slow.' },
+];
 
 async function readApiResponse(response) {
   const contentType = response.headers.get('content-type') || '';
@@ -15,16 +22,95 @@ async function readApiResponse(response) {
 }
 
 async function postJson(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await readApiResponse(response);
-  if (!response.ok) {
-    throw new Error(data.error || `Request failed with status ${response.status}`);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const data = await readApiResponse(response);
+    if (!response.ok) {
+      throw new Error(data.error || `Request failed with status ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('AI generation timed out. Try a shorter idea or check the Render logs for the provider response.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return data;
+}
+
+function getArchitectureNodes(result) {
+  const spec = result?.spec || {};
+  const text = `${result?.architecture || ''} ${(spec.techStack || []).join(' ')}`.toLowerCase();
+  const endpoints = Array.isArray(spec.apiEndpoints) ? spec.apiEndpoints : [];
+  const endpointLabel = endpoints.length
+    ? `${endpoints.length} API endpoint${endpoints.length === 1 ? '' : 's'}`
+    : 'REST API';
+  const frontend = (spec.techStack || []).find((item) => /react|vue|svelte|angular|solid|next/i.test(item)) || 'Frontend';
+  const backend = (spec.techStack || []).find((item) => /express|fastapi|node|nest|api/i.test(item)) || 'Backend';
+  const nodes = [
+    { id: 'user', title: 'User', detail: 'Uses the generated app' },
+    { id: 'frontend', title: frontend, detail: 'Screens, forms, and client state' },
+    { id: 'api', title: endpointLabel, detail: endpoints.slice(0, 2).map((endpoint) => `${endpoint.method} ${endpoint.path}`).join(' | ') || 'Request and response layer' },
+    { id: 'backend', title: backend, detail: 'Business logic and validation' },
+  ];
+
+  if (/mongo|postgres|mysql|database|db|mongoose|storage|persist/.test(text)) {
+    nodes.push({ id: 'database', title: 'Database', detail: 'Persistent application data' });
+  }
+
+  if (/auth|jwt|login|password|verification|email|otp/.test(text)) {
+    nodes.push({ id: 'auth', title: 'Auth / Email', detail: 'Identity and notifications' });
+  }
+
+  nodes.push({ id: 'ci', title: 'CI/CD', detail: 'Tests, build, and deployment' });
+  return nodes;
+}
+
+function ArchitectureDiagram({ result }) {
+  const nodes = getArchitectureNodes(result);
+
+  return (
+    <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+      <div className="min-w-[760px]">
+        <div className="grid grid-cols-[1fr_44px_1fr_44px_1fr_44px_1fr] items-center gap-2">
+          {nodes.slice(0, 4).map((node, index) => (
+            <Fragment key={node.id}>
+              <div className="rounded-2xl border border-cyan-400/40 bg-slate-900 p-4">
+                <p className="text-sm font-semibold text-cyan-200">{node.title}</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{node.detail}</p>
+              </div>
+              {index < 3 && (
+                <div className="flex items-center justify-center text-cyan-300">
+                  <span className="h-px flex-1 bg-cyan-400/40" />
+                  <span className="text-xl">→</span>
+                </div>
+              )}
+            </Fragment>
+          ))}
+        </div>
+
+        {nodes.length > 4 && (
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {nodes.slice(4).map((node) => (
+              <div key={node.id} className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4">
+                <p className="text-sm font-semibold text-emerald-200">{node.title}</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300">{node.detail}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -48,6 +134,22 @@ function App() {
   const [validationMessage, setValidationMessage] = useState('');
   const [validating, setValidating] = useState(false);
   const [agentLogs, setAgentLogs] = useState([]);
+
+  useEffect(() => {
+    if (!aiLoading) {
+      return undefined;
+    }
+
+    const timers = AI_PROGRESS_MESSAGES.map(({ delay, text }) => (
+      window.setTimeout(() => {
+        setAgentLogs((logs) => (logs.includes(text) ? logs : [...logs, text]));
+      }, delay)
+    ));
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [aiLoading]);
 
   function validateProject() {
     if (!result) {
@@ -157,7 +259,7 @@ function App() {
             rows="6"
             value={idea}
             onChange={(event) => setIdea(event.target.value)}
-            disabled={loading}
+            disabled={loading || aiLoading}
             className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 text-slate-100 shadow-inner outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 disabled:opacity-60"
           />
 
@@ -168,7 +270,7 @@ function App() {
                 id="tech-stack"
                 value={techStack}
                 onChange={(event) => setTechStack(event.target.value)}
-                disabled={loading}
+                disabled={loading || aiLoading}
                 className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 disabled:opacity-60"
               >
                 <option value="react-express">React + Express</option>
@@ -196,7 +298,7 @@ function App() {
                   id="provider"
                   value={provider}
                   onChange={(event) => setProvider(event.target.value)}
-                  disabled={loading}
+                  disabled={loading || aiLoading}
                   className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950 p-3 text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 disabled:opacity-60"
                 >
                   <option value="openai">OpenAI</option>
@@ -212,7 +314,7 @@ function App() {
 
           <button
             onClick={handleGenerate}
-            disabled={loading}
+            disabled={loading || aiLoading}
             className="inline-flex items-center justify-center rounded-full bg-cyan-500 px-6 py-3 text-base font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? '⏳ Generating...' : 'Generate Project'}
@@ -267,7 +369,10 @@ function App() {
                       setError('');
                       setAiLoading(true);
                       setResult(null);
-                      setAgentLogs(['🤖 Asking AI to generate project via LLM...']);
+                      setAgentLogs([
+                        '🤖 Asking AI to generate project via LLM...',
+                        '⏳ Waiting for provider response. This can take up to 70 seconds on Render.',
+                      ]);
                       try {
                         const data = await postJson('/generate', { idea, techStack, useAI: true, provider });
                         setAgentLogs((l) => [...l, '✅ AI returned project scaffold']);
@@ -289,7 +394,7 @@ function App() {
             </div>
           )}
 
-          {loading && agentLogs.length > 0 && (
+          {(loading || aiLoading) && agentLogs.length > 0 && (
             <div className="mt-6 rounded-3xl border border-slate-700 bg-slate-950/80 p-6">
               <h3 className="text-sm font-semibold text-cyan-300">Agent Progress</h3>
               <div className="mt-4 space-y-2">
@@ -302,7 +407,7 @@ function App() {
               </div>
               <div className="mt-4 flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-cyan-400 animate-spin"></div>
-                <span className="text-xs text-slate-400">Building your project...</span>
+                <span className="text-xs text-slate-400">{aiLoading ? 'Waiting for AI provider...' : 'Building your project...'}</span>
               </div>
             </div>
           )}
@@ -341,6 +446,7 @@ function App() {
                 {activeTab === 'Architecture' && (
                   <div>
                     <h3 className="text-lg font-semibold text-white">Architecture Overview</h3>
+                    <ArchitectureDiagram result={result} />
                     <p className="mt-4 whitespace-pre-line text-slate-300">{result.architecture}</p>
                   </div>
                 )}
