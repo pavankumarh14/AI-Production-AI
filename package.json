@@ -1,0 +1,35 @@
+{
+  "name": "ai-production-os",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server/index.js --watch server --ext js,json",
+    "client": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "archiver": "^5.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.4",
+    "openai": "^4.8.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.1.0",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.1",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.4.1"
+  }
+}
